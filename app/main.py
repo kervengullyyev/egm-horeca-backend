@@ -3,9 +3,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import app.api as api
-import app.database as database
 import app.routers.stripe as stripe_router
 import app.routers.messages as messages_router
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI(
     title="EGM Horeca API",
@@ -13,14 +17,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware configuration
+# CORS middleware configuration - use environment variables
+FRONTEND_URL = os.getenv("FRONTEND_URL")
+ADMIN_URL = os.getenv("ADMIN_URL")
+
+if not FRONTEND_URL:
+    raise ValueError("FRONTEND_URL environment variable must be set")
+if not ADMIN_URL:
+    raise ValueError("ADMIN_URL environment variable must be set")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # Frontend
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",  # Admin
-        "http://127.0.0.1:3001",
+        FRONTEND_URL,  # Frontend
+        ADMIN_URL,      # Admin
         "https://admin.egmhoreca.ro",
         "https://egmhoreca.ro",
     ],
@@ -29,8 +39,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Create upload directories if they don't exist
+os.makedirs("uploads/images", exist_ok=True)
+os.makedirs("uploads/files", exist_ok=True)
+
 # Mount static files for serving uploaded images
 app.mount("/api/v1/images", StaticFiles(directory="uploads/images"), name="images")
+
+# Mount static files for serving uploaded files
+app.mount("/api/v1/files", StaticFiles(directory="uploads/files"), name="files")
 
 # Include API router
 app.include_router(api.router, prefix="/api/v1")
@@ -43,14 +60,25 @@ app.include_router(messages_router.router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database tables on startup"""
+    """Initialize database on startup"""
     try:
-        database.create_tables()
-        print("✅ Database tables created successfully")
+        # Check if database is accessible
+        from app.database import get_engine
+        from sqlalchemy import text
+        
+        engine = get_engine()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            conn.commit()
+        print("✅ Database connection successful")
+        print("💡 Note: Database tables are managed by Alembic migrations")
+        print("   Use 'python manage_db.py init' to initialize the database")
+        print("   Use 'python manage_db.py migrate' to run pending migrations")
     except Exception as e:
-        print(f"⚠️  Database initialization warning: {e}")
+        print(f"⚠️  Database connection warning: {e}")
         print("   The API will still work, but database operations may fail")
         print("   Make sure PostgreSQL is running and accessible")
+        print("   Use 'python manage_db.py init' to initialize the database")
 
 @app.get("/")
 def root():
@@ -66,7 +94,9 @@ def root():
             "orders": "/api/v1/orders",
             "favorites": "/api/v1/favorites",
             "messages": "/api/v1/messages",
-            "dashboard": "/api/v1/dashboard/stats"
+            "dashboard": "/api/v1/dashboard/stats",
+            "upload_file": "/api/v1/upload-file",
+            "upload_image": "/api/v1/upload-image"
         },
         "status": "running",
         "note": "Check /docs for full API documentation"

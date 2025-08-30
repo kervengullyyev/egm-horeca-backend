@@ -8,6 +8,13 @@ from PIL import Image
 import io
 from app import crud, schemas, database
 from app.routers import auth, stripe, orders
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get backend URL from environment
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 router = APIRouter()
 
@@ -32,22 +39,86 @@ def get_db():
 def health_check():
     return {"status": "ok", "message": "EGM Horeca API is running"}
 
-# Image upload endpoint
+# File upload endpoint
+@router.post("/upload-file")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload any file (max 20MB)"""
+    try:
+        # Check file size limit (20MB = 20 * 1024 * 1024 bytes)
+        max_file_size = 20 * 1024 * 1024  # 20MB in bytes
+        
+        # Read file contents to check size
+        contents = await file.read()
+        file_size = len(contents)
+        
+        if file_size > max_file_size:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File size ({file_size // 1024 // 1024}MB) exceeds limit of 20MB"
+            )
+        
+        # Generate unique filename with original extension
+        file_extension = file.filename.split('.')[-1] if '.' in file.filename else ''
+        filename = f"{uuid.uuid4()}{'.' + file_extension if file_extension else ''}"
+        file_path = f"uploads/files/{filename}"
+        
+        # Ensure uploads/files directory exists
+        os.makedirs("uploads/files", exist_ok=True)
+        
+        # Save file
+        with open(file_path, "wb") as f:
+            f.write(contents)
+        
+        # Return the file URL
+        file_url = f"{BACKEND_URL}/api/v1/files/{filename}"
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "original_filename": file.filename,
+            "url": file_url,
+            "size": file_size,
+            "size_mb": round(file_size / 1024 / 1024, 2),
+            "content_type": file.content_type
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error uploading file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload file")
+
+# Image upload endpoint (kept for backward compatibility)
 @router.post("/upload-image")
 async def upload_image(file: UploadFile = File(...)):
-    """Upload an image file"""
+    """Upload an image file (max 20MB)"""
     try:
         # Validate file type
         if not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Check file size limit (20MB = 20 * 1024 * 1024 bytes)
+        max_file_size = 20 * 1024 * 1024  # 20MB in bytes
+        
+        # Read file contents to check size
+        contents = await file.read()
+        file_size = len(contents)
+        
+        if file_size > max_file_size:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Image size ({file_size // 1024 // 1024}MB) exceeds limit of 20MB"
+            )
         
         # Generate unique filename
         file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
         filename = f"{uuid.uuid4()}.{file_extension}"
         file_path = f"uploads/images/{filename}"
         
-        # Read and process image
-        contents = await file.read()
+        # Ensure uploads/images directory exists
+        os.makedirs("uploads/images", exist_ok=True)
+        
+        # Process and save image
         image = Image.open(io.BytesIO(contents))
         
         # Convert to RGB if necessary (for JPEG compatibility)
@@ -58,16 +129,19 @@ async def upload_image(file: UploadFile = File(...)):
         image.save(file_path, quality=85, optimize=True)
         
         # Return the image URL
-        image_url = f"http://localhost:8000/api/v1/images/{filename}"
+        image_url = f"{BACKEND_URL}/api/v1/images/{filename}"
         
         return {
             "success": True,
             "filename": filename,
             "url": image_url,
-            "size": len(contents),
+            "size": file_size,
+            "size_mb": round(file_size / 1024 / 1024, 2),
             "content_type": file.content_type
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error uploading image: {e}")
         raise HTTPException(status_code=500, detail="Failed to upload image")

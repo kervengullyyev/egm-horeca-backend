@@ -11,8 +11,12 @@ from app.schemas import CreateOrderRequest, OrderBase
 
 load_dotenv()
 
-# Initialize Stripe
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+# Initialize Stripe - validate environment variables
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+if not STRIPE_SECRET_KEY:
+    raise ValueError("STRIPE_SECRET_KEY environment variable must be set")
+
+stripe.api_key = STRIPE_SECRET_KEY
 
 router = APIRouter(prefix="/stripe", tags=["stripe"])
 
@@ -66,8 +70,8 @@ async def create_checkout_session(request: CheckoutRequest):
             payment_method_types=["card"],
             line_items=line_items,
             mode="payment",
-            success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/checkout/cancel",
+            success_url=f"{os.getenv('FRONTEND_URL')}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{os.getenv('FRONTEND_URL')}/checkout/cancel",
             customer_email=request.customerInfo.email,
             metadata={
                 "customer_name": f"{request.customerInfo.firstName} {request.customerInfo.lastName}",
