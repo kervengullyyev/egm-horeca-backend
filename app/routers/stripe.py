@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import stripe
 import os
 from dotenv import load_dotenv
@@ -25,7 +25,7 @@ class CartItem(BaseModel):
     name: str
     price: float
     qty: int
-    variants: Dict[str, Any] | None = None
+    variants: Union[Dict[str, Any], None] = None
 
 class CustomerInfo(BaseModel):
     entityType: str
@@ -33,8 +33,8 @@ class CustomerInfo(BaseModel):
     lastName: str
     phone: str
     email: str
-    taxId: str | None = None
-    companyName: str | None = None
+    taxId: Union[str, None] = None
+    companyName: Union[str, None] = None
     county: str
     city: str
     address: str
