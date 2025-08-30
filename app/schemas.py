@@ -90,8 +90,15 @@ class UserBase(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
     role: str = Field("customer", pattern="^(customer|admin)$")
+    is_active: bool = True
 
-class UserCreate(UserBase):
+class UserCreate(BaseModel):
+    email: str = Field(..., pattern=r"^[^@]+@[^@]+\.[^@]+$")
+    username: str = Field(..., min_length=3, max_length=100)
+    full_name: str = Field(..., min_length=1, max_length=200)
+    phone: Optional[str] = Field(None, max_length=20)
+    role: str = Field("customer", pattern="^(customer|admin)$")
+    is_active: bool = True
     password: str = Field(..., min_length=6)
 
 class UserUpdate(BaseModel):
@@ -100,6 +107,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
     role: Optional[str] = Field(None, pattern="^(customer|admin)$")
+    is_active: Optional[bool] = None
 
 class UserResponse(UserBase):
     id: int

@@ -4,26 +4,22 @@ from typing import Optional, List
 import jwt
 from datetime import datetime, timedelta
 import os
-import hashlib
-import secrets
+from sqlalchemy.orm import Session
+from app import crud, database
+from app.utils import hash_password, verify_password
 
 router = APIRouter()
 
-# Simple password hashing (fallback if bcrypt fails)
-def hash_password(password: str) -> str:
-    """Hash password using SHA-256 with salt"""
-    salt = secrets.token_hex(16)
-    hash_obj = hashlib.sha256((password + salt).encode())
-    return f"{salt}${hash_obj.hexdigest()}"
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against hash"""
+# Database dependency
+def get_db():
+    SessionLocal = database.get_session_local()
+    db = SessionLocal()
     try:
-        salt, hash_value = hashed_password.split('$')
-        hash_obj = hashlib.sha256((plain_password + salt).encode())
-        return hash_obj.hexdigest() == hash_value
-    except:
-        return False
+        yield db
+    finally:
+        db.close()
+
+
 
 # JWT settings
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -63,8 +59,7 @@ class AuthResponse(BaseModel):
     token: Optional[str] = None
     user: Optional[UserResponse] = None
 
-# Mock user database (replace with real database)
-users_db = {}
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -79,27 +74,30 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 
 @router.post("/signup", response_model=AuthResponse)
-async def signup(user_data: UserSignUp):
+async def signup(user_data: UserSignUp, db: Session = Depends(get_db)):
     try:
-        # Check if user already exists
-        if user_data.email in users_db:
+        # Check if user already exists in database
+        existing_user = crud.get_user_by_email(db, email=user_data.email)
+        if existing_user:
             raise HTTPException(status_code=400, detail="User with this email already exists")
         
-        # Create user ID
-        user_id = f"user_{len(users_db) + 1}"
+        # Check if username already exists
+        existing_username = crud.get_user_by_username(db, username=user_data.email.split('@')[0])  # Use email prefix as username
+        if existing_username:
+            raise HTTPException(status_code=400, detail="Username already taken")
         
-        # Hash password
-        hashed_password = hash_password(user_data.password)
+        # Create user in database
+        from app.schemas import UserCreate
+        db_user_data = UserCreate(
+            email=user_data.email,
+            username=user_data.email.split('@')[0],  # Use email prefix as username
+            full_name=f"{user_data.firstName} {user_data.lastName}",
+            phone=user_data.phone,
+            role="customer",
+            password=user_data.password
+        )
         
-        # Store user
-        users_db[user_data.email] = {
-            "id": user_id,
-            "firstName": user_data.firstName,
-            "lastName": user_data.lastName,
-            "email": user_data.email,
-            "phone": user_data.phone,
-            "hashed_password": hashed_password
-        }
+        db_user = crud.create_user(db, db_user_data)
         
         # Create access token
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -109,7 +107,7 @@ async def signup(user_data: UserSignUp):
         
         # Return user data (without password)
         user_response = UserResponse(
-            id=user_id,
+            id=str(db_user.id),
             firstName=user_data.firstName,
             lastName=user_data.lastName,
             email=user_data.email,
@@ -127,16 +125,15 @@ async def signup(user_data: UserSignUp):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/signin", response_model=AuthResponse)
-async def signin(user_data: UserSignIn):
+async def signin(user_data: UserSignIn, db: Session = Depends(get_db)):
     try:
-        # Check if user exists
-        if user_data.email not in users_db:
+        # Check if user exists in database
+        db_user = crud.get_user_by_email(db, email=user_data.email)
+        if not db_user:
             raise HTTPException(status_code=401, detail="Invalid email or password")
         
-        user = users_db[user_data.email]
-        
-        # Verify password
-        if not verify_password(user_data.password, user["hashed_password"]):
+        # Verify password (using the hashed password from database)
+        if not verify_password(user_data.password, db_user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         
         # Create access token
@@ -147,11 +144,11 @@ async def signin(user_data: UserSignIn):
         
         # Return user data (without password)
         user_response = UserResponse(
-            id=user["id"],
-            firstName=user["firstName"],
-            lastName=user["lastName"],
-            email=user["email"],
-            phone=user["phone"]
+            id=str(db_user.id),
+            firstName=db_user.full_name.split()[0] if db_user.full_name else "",
+            lastName=" ".join(db_user.full_name.split()[1:]) if db_user.full_name and len(db_user.full_name.split()) > 1 else "",
+            email=db_user.email,
+            phone=db_user.phone or ""
         )
         
         return AuthResponse(
@@ -165,27 +162,28 @@ async def signin(user_data: UserSignIn):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/sso", response_model=AuthResponse)
-async def sso_login(sso_data: SSORequest):
+async def sso_login(sso_data: SSORequest, db: Session = Depends(get_db)):
     try:
-        # For now, we'll create a mock user for SSO
-        # In production, you would verify the SSO token with the provider
+        # Check if user already exists in database
+        existing_user = crud.get_user_by_email(db, email=sso_data.email)
         
-        user_id = f"user_{len(users_db) + 1}"
-        
-        # Check if user already exists
-        if sso_data.email in users_db:
-            user = users_db[sso_data.email]
+        if existing_user:
+            # User exists, just log them in
+            db_user = existing_user
         else:
-            # Create new user from SSO data
-            user = {
-                "id": user_id,
-                "firstName": sso_data.firstName or "SSO",
-                "lastName": sso_data.lastName or "User",
-                "email": sso_data.email,
-                "phone": "",
-                "hashed_password": ""  # SSO users don't have passwords
-            }
-            users_db[sso_data.email] = user
+            # Create new user from SSO data in database
+            from app.schemas import UserCreate
+            db_user_data = UserCreate(
+                email=sso_data.email,
+                username=sso_data.email.split('@')[0],  # Use email prefix as username
+                full_name=f"{sso_data.firstName or 'SSO'} {sso_data.lastName or 'User'}",
+                phone="",
+                role="customer",
+                is_active=True,
+                password="sso_user_no_password"  # Dummy password for SSO users
+            )
+            
+            db_user = crud.create_user(db, db_user_data)
         
         # Create access token
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -195,11 +193,11 @@ async def sso_login(sso_data: SSORequest):
         
         # Return user data
         user_response = UserResponse(
-            id=user["id"],
-            firstName=user["firstName"],
-            lastName=user["lastName"],
-            email=user["email"],
-            phone=user["phone"]
+            id=str(db_user.id),
+            firstName=db_user.full_name.split()[0] if db_user.full_name else "",
+            lastName=" ".join(db_user.full_name.split()[1:]) if db_user.full_name and len(db_user.full_name.split()) > 1 else "",
+            email=db_user.email,
+            phone=db_user.phone or ""
         )
         
         return AuthResponse(
@@ -219,17 +217,23 @@ async def signout():
     return {"success": True, "message": "Logged out successfully"}
 
 @router.get("/users", response_model=List[UserResponse])
-async def get_all_users():
+async def get_all_users(db: Session = Depends(get_db)):
     """Get all registered users (for admin purposes)"""
     try:
+        db_users = crud.get_users(db, skip=0, limit=1000, active_only=False)
         users = []
-        for email, user_data in users_db.items():
+        for db_user in db_users:
+            # Split full_name into firstName and lastName
+            name_parts = db_user.full_name.split() if db_user.full_name else ["", ""]
+            firstName = name_parts[0] if name_parts else ""
+            lastName = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+            
             users.append(UserResponse(
-                id=user_data["id"],
-                firstName=user_data["firstName"],
-                lastName=user_data["lastName"],
-                email=user_data["email"],
-                phone=user_data["phone"]
+                id=str(db_user.id),
+                firstName=firstName,
+                lastName=lastName,
+                email=db_user.email,
+                phone=db_user.phone or ""
             ))
         return users
     except Exception as e:

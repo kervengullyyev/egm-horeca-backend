@@ -128,8 +128,9 @@ def get_users(db: Session, skip: int = 0, limit: int = 100, active_only: bool = 
     return query.offset(skip).limit(limit).all()
 
 def create_user(db: Session, user: schemas.UserCreate):
-    # In a real app, you'd hash the password here
-    hashed_password = user.password  # TODO: implement proper hashing
+    # Hash the password before storing
+    from app.utils import hash_password
+    hashed_password = hash_password(user.password)
     db_user = models.User(
         email=user.email,
         username=user.username,
