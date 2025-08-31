@@ -18,21 +18,16 @@ app = FastAPI(
 )
 
 # CORS middleware configuration - use environment variables
-FRONTEND_URL = os.getenv("FRONTEND_URL")
-ADMIN_URL = os.getenv("ADMIN_URL")
-
-if not FRONTEND_URL:
-    raise ValueError("FRONTEND_URL environment variable must be set")
-if not ADMIN_URL:
-    raise ValueError("ADMIN_URL environment variable must be set")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://egmhoreca.ro")
+ADMIN_URL = os.getenv("ADMIN_URL", "https://admin.egmhoreca.ro")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         FRONTEND_URL,  # Frontend
         ADMIN_URL,      # Admin
-        "https://admin.egmhoreca.ro",
-        "https://egmhoreca.ro",
+        "http://localhost:3000",  # Local development
+        "http://localhost:3001",  # Local admin development
     ],
     allow_credentials=True,
     allow_methods=["*"],
