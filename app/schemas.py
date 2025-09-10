@@ -118,12 +118,35 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=20)
     role: Optional[str] = Field(None, pattern="^(customer|admin)$")
     is_active: Optional[bool] = None
+    entity_type: Optional[str] = Field(None, pattern="^(individual|company)$")
+    tax_id: Optional[str] = Field(None, max_length=50)
+    company_name: Optional[str] = Field(None, max_length=200)
+    trade_register_no: Optional[str] = Field(None, max_length=100)
+    bank_name: Optional[str] = Field(None, max_length=200)
+    iban: Optional[str] = Field(None, max_length=100)
+    county: Optional[str] = Field(None, max_length=100)
+    city: Optional[str] = Field(None, max_length=100)
+    address: Optional[str] = None
 
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
     id: int
+    email: str
+    username: str
+    full_name: str
+    phone: Optional[str] = None
+    role: str
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
+    entity_type: Optional[str] = None
+    tax_id: Optional[str] = None
+    company_name: Optional[str] = None
+    trade_register_no: Optional[str] = None
+    bank_name: Optional[str] = None
+    iban: Optional[str] = None
+    county: Optional[str] = None
+    city: Optional[str] = None
+    address: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -380,5 +403,21 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6)
 
 class PasswordResetResponse(BaseModel):
+    success: bool
+    message: str
+
+# Address update schema
+class AddressUpdateRequest(BaseModel):
+    entity_type: str = Field(..., pattern="^(individual|company)$")
+    tax_id: Optional[str] = Field(None, max_length=50)
+    company_name: Optional[str] = Field(None, max_length=200)
+    trade_register_no: Optional[str] = Field(None, max_length=100)
+    bank_name: Optional[str] = Field(None, max_length=200)
+    iban: Optional[str] = Field(None, max_length=100)
+    county: str = Field(..., min_length=1, max_length=100)
+    city: str = Field(..., min_length=1, max_length=100)
+    address: str = Field(..., min_length=1)
+
+class AddressUpdateResponse(BaseModel):
     success: bool
     message: str

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, List
 import jwt
@@ -9,12 +10,15 @@ import logging
 from sqlalchemy.orm import Session
 from app import crud, database
 from app.utils import hash_password, verify_password
-from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, PasswordResetResponse
+from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, PasswordResetResponse, AddressUpdateRequest, AddressUpdateResponse, UserResponse
 from app.email_service import email_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Security scheme
+security = HTTPBearer()
 
 # Database dependency
 def get_db():
@@ -52,18 +56,12 @@ class SSORequest(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
 
-class UserResponse(BaseModel):
-    id: str
-    firstName: str
-    lastName: str
-    email: str
-    phone: str
 
 class AuthResponse(BaseModel):
     success: bool
     message: str
     token: Optional[str] = None
-    user: Optional[UserResponse] = None
+    user: Optional[dict] = None  # Will contain firstName, lastName, email, phone for frontend compatibility
 
 
 
@@ -76,6 +74,30 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def verify_token(token: str, db: Session):
+    """Verify JWT token and return the authenticated user"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        # Get user from database by email
+        user = crud.get_user_by_email(db, email=email)
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        return user
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    """Dependency to get current authenticated user"""
+    token = credentials.credentials
+    return verify_token(token, db)
 
 
 
@@ -112,13 +134,13 @@ async def signup(user_data: UserSignUp, db: Session = Depends(get_db)):
         )
         
         # Return user data (without password)
-        user_response = UserResponse(
-            id=str(db_user.id),
-            firstName=user_data.firstName,
-            lastName=user_data.lastName,
-            email=user_data.email,
-            phone=user_data.phone
-        )
+        user_response = {
+            "id": str(db_user.id),
+            "firstName": user_data.firstName,
+            "lastName": user_data.lastName,
+            "email": user_data.email,
+            "phone": user_data.phone
+        }
         
         return AuthResponse(
             success=True,
@@ -149,13 +171,13 @@ async def signin(user_data: UserSignIn, db: Session = Depends(get_db)):
         )
         
         # Return user data (without password)
-        user_response = UserResponse(
-            id=str(db_user.id),
-            firstName=db_user.full_name.split()[0] if db_user.full_name else "",
-            lastName=" ".join(db_user.full_name.split()[1:]) if db_user.full_name and len(db_user.full_name.split()) > 1 else "",
-            email=db_user.email,
-            phone=db_user.phone or ""
-        )
+        user_response = {
+            "id": str(db_user.id),
+            "firstName": db_user.full_name.split()[0] if db_user.full_name else "",
+            "lastName": " ".join(db_user.full_name.split()[1:]) if db_user.full_name and len(db_user.full_name.split()) > 1 else "",
+            "email": db_user.email,
+            "phone": db_user.phone or ""
+        }
         
         return AuthResponse(
             success=True,
@@ -198,13 +220,13 @@ async def sso_login(sso_data: SSORequest, db: Session = Depends(get_db)):
         )
         
         # Return user data
-        user_response = UserResponse(
-            id=str(db_user.id),
-            firstName=db_user.full_name.split()[0] if db_user.full_name else "",
-            lastName=" ".join(db_user.full_name.split()[1:]) if db_user.full_name and len(db_user.full_name.split()) > 1 else "",
-            email=db_user.email,
-            phone=db_user.phone or ""
-        )
+        user_response = {
+            "id": str(db_user.id),
+            "firstName": db_user.full_name.split()[0] if db_user.full_name else "",
+            "lastName": " ".join(db_user.full_name.split()[1:]) if db_user.full_name and len(db_user.full_name.split()) > 1 else "",
+            "email": db_user.email,
+            "phone": db_user.phone or ""
+        }
         
         return AuthResponse(
             success=True,
@@ -327,4 +349,81 @@ async def reset_password(request: ResetPasswordRequest, db: Session = Depends(ge
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/update-address", response_model=AddressUpdateResponse)
+async def update_address(
+    request: AddressUpdateRequest, 
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update user address information"""
+    try:
+        # Get the authenticated user's ID
+        user_id = current_user.id
+        
+        # Validate required fields based on entity type
+        if request.entity_type == "company":
+            if not request.tax_id or not request.company_name:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Tax ID and Company Name are required for company entities"
+                )
+        
+        # Update user address
+        address_data = request.model_dump()
+        updated_user = crud.update_user_address(db, user_id, address_data)
+        
+        if not updated_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return AddressUpdateResponse(
+            success=True,
+            message="Address information updated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating address: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/profile", response_model=UserResponse)
+async def get_user_profile(
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user profile information"""
+    try:
+        # Use the authenticated user directly
+        db_user = current_user
+        
+        # Convert to response model
+        user_response = UserResponse(
+            id=db_user.id,
+            email=db_user.email,
+            username=db_user.username,
+            full_name=db_user.full_name,
+            phone=db_user.phone,
+            role=db_user.role,
+            is_active=db_user.is_active,
+            created_at=db_user.created_at,
+            updated_at=db_user.updated_at,
+            entity_type=db_user.entity_type,
+            tax_id=db_user.tax_id,
+            company_name=db_user.company_name,
+            trade_register_no=db_user.trade_register_no,
+            bank_name=db_user.bank_name,
+            iban=db_user.iban,
+            county=db_user.county,
+            city=db_user.city,
+            address=db_user.address
+        )
+        
+        return user_response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user profile: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

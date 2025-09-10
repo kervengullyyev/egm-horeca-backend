@@ -88,6 +88,17 @@ class User(Base):
     reset_token = Column(String(255), nullable=True, index=True)
     reset_token_expires = Column(DateTime(timezone=True), nullable=True)
     
+    # Address and entity information
+    entity_type = Column(String(20), default="individual")  # individual, company
+    tax_id = Column(String(50))
+    company_name = Column(String(200))
+    trade_register_no = Column(String(100))
+    bank_name = Column(String(200))
+    iban = Column(String(100))
+    county = Column(String(100))
+    city = Column(String(100))
+    address = Column(Text)
+    
     favorites = relationship("Favorite", back_populates="user")
 
 class Order(Base):

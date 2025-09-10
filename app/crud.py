@@ -241,6 +241,25 @@ def update_user_password(db: Session, user_id: int, new_password: str):
         db.refresh(db_user)
     return db_user
 
+def update_user_address(db: Session, user_id: int, address_data: dict):
+    """Update user address information"""
+    db_user = get_user(db, user_id)
+    if db_user:
+        # Update address fields
+        db_user.entity_type = address_data.get("entity_type", "individual")
+        db_user.tax_id = address_data.get("tax_id")
+        db_user.company_name = address_data.get("company_name")
+        db_user.trade_register_no = address_data.get("trade_register_no")
+        db_user.bank_name = address_data.get("bank_name")
+        db_user.iban = address_data.get("iban")
+        db_user.county = address_data.get("county")
+        db_user.city = address_data.get("city")
+        db_user.address = address_data.get("address")
+        
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
 # Order CRUD operations
 def get_order(db: Session, order_id: int):
     return db.query(models.Order).filter(models.Order.id == order_id).first()
