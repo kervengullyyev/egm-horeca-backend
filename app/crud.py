@@ -57,7 +57,8 @@ def get_products(
     search: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
-    brand: Optional[str] = None
+    brand: Optional[str] = None,
+    language: Optional[str] = None
 ):
     query = db.query(models.Product)
     
@@ -68,12 +69,26 @@ def get_products(
         query = query.filter(models.Product.category_id == category_id)
     
     if search:
-        search_filter = or_(
-            models.Product.name_en.ilike(f"%{search}%"),
-            models.Product.name_ro.ilike(f"%{search}%"),
-            models.Product.description_en.ilike(f"%{search}%"),
-            models.Product.description_ro.ilike(f"%{search}%")
-        )
+        if language == "ro":
+            # For Romanian, search only in Romanian fields and ensure Romanian content exists
+            search_filter = and_(
+                or_(
+                    models.Product.name_ro.ilike(f"%{search}%"),
+                    models.Product.description_ro.ilike(f"%{search}%")
+                ),
+                models.Product.name_ro.isnot(None),
+                models.Product.name_ro != ""
+            )
+        else:
+            # For English (default), search only in English fields and ensure English content exists
+            search_filter = and_(
+                or_(
+                    models.Product.name_en.ilike(f"%{search}%"),
+                    models.Product.description_en.ilike(f"%{search}%")
+                ),
+                models.Product.name_en.isnot(None),
+                models.Product.name_en != ""
+            )
         query = query.filter(search_filter)
     
     if min_price is not None:
