@@ -8,6 +8,7 @@ from PIL import Image
 import io
 from app import crud, schemas, database
 from app.routers import auth, stripe, orders
+from app.webhook_client import webhook_client
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -278,24 +279,52 @@ def read_category_by_slug(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/categories", response_model=schemas.CategoryResponse)
-def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
+async def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
     """Create a new category"""
-    return crud.create_category(db=db, category=category)
+    db_category = crud.create_category(db=db, category=category)
+    
+    # Send webhook to frontend
+    try:
+        await webhook_client.category_created(
+            category_id=db_category.id,
+            slug=db_category.slug
+        )
+    except Exception as e:
+        print(f"Failed to send category created webhook: {e}")
+    
+    return db_category
 
 @router.put("/categories/{category_id}", response_model=schemas.CategoryResponse)
-def update_category(category_id: int, category: schemas.CategoryUpdate, db: Session = Depends(get_db)):
+async def update_category(category_id: int, category: schemas.CategoryUpdate, db: Session = Depends(get_db)):
     """Update a category"""
     db_category = crud.update_category(db=db, category_id=category_id, category=category)
     if db_category is None:
         raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Send webhook to frontend
+    try:
+        await webhook_client.category_updated(
+            category_id=db_category.id,
+            slug=db_category.slug
+        )
+    except Exception as e:
+        print(f"Failed to send category updated webhook: {e}")
+    
     return db_category
 
 @router.delete("/categories/{category_id}")
-def delete_category(category_id: int, db: Session = Depends(get_db)):
+async def delete_category(category_id: int, db: Session = Depends(get_db)):
     """Delete a category"""
     db_category = crud.delete_category(db=db, category_id=category_id)
     if db_category is None:
         raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Send webhook to frontend
+    try:
+        await webhook_client.category_deleted(category_id=category_id)
+    except Exception as e:
+        print(f"Failed to send category deleted webhook: {e}")
+    
     return {"message": "Category deleted successfully"}
 
 # Product endpoints
@@ -357,24 +386,61 @@ def read_product_by_slug(slug: str, db: Session = Depends(get_db)):
     return product
 
 @router.post("/products", response_model=schemas.ProductResponse)
-def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
+async def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
     """Create a new product"""
-    return crud.create_product(db=db, product=product)
+    db_product = crud.create_product(db=db, product=product)
+    
+    # Send webhook to frontend
+    try:
+        await webhook_client.product_created(
+            product_id=db_product.id,
+            slug=db_product.slug,
+            category_id=db_product.category_id
+        )
+    except Exception as e:
+        print(f"Failed to send product created webhook: {e}")
+    
+    return db_product
 
 @router.put("/products/{product_id}", response_model=schemas.ProductResponse)
-def update_product(product_id: int, product: schemas.ProductUpdate, db: Session = Depends(get_db)):
+async def update_product(product_id: int, product: schemas.ProductUpdate, db: Session = Depends(get_db)):
     """Update a product"""
     db_product = crud.update_product(db=db, product_id=product_id, product=product)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Send webhook to frontend
+    try:
+        await webhook_client.product_updated(
+            product_id=db_product.id,
+            slug=db_product.slug,
+            category_id=db_product.category_id
+        )
+    except Exception as e:
+        print(f"Failed to send product updated webhook: {e}")
+    
     return db_product
 
 @router.delete("/products/{product_id}")
-def delete_product(product_id: int, db: Session = Depends(get_db)):
+async def delete_product(product_id: int, db: Session = Depends(get_db)):
     """Delete a product"""
-    db_product = crud.delete_product(db=db, product_id=product_id)
+    # Get product info before deletion for webhook
+    db_product = crud.get_product(db, product_id=product_id)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Delete the product
+    crud.delete_product(db=db, product_id=product_id)
+    
+    # Send webhook to frontend
+    try:
+        await webhook_client.product_deleted(
+            product_id=product_id,
+            category_id=db_product.category_id
+        )
+    except Exception as e:
+        print(f"Failed to send product deleted webhook: {e}")
+    
     return {"message": "Product deleted successfully"}
 
 # Product Variant endpoints
