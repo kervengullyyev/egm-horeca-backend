@@ -45,6 +45,8 @@ class Product(Base):
     has_variants = Column(Boolean, default=False)  # Whether product has variants
     variant_type_en = Column(String(100))  # e.g., "Size", "Color", "Material" - only one type allowed
     variant_type_ro = Column(String(100))  # Romanian variant type
+    is_featured = Column(Boolean, default=False)  # Whether product is featured
+    is_top_product = Column(Boolean, default=False)  # Whether product is a top product
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

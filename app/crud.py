@@ -79,7 +79,9 @@ def get_products(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     brand: Optional[str] = None,
-    language: Optional[str] = None
+    language: Optional[str] = None,
+    is_featured: Optional[bool] = None,
+    is_top_product: Optional[bool] = None
 ):
     query = db.query(models.Product)
     
@@ -120,6 +122,12 @@ def get_products(
     
     if brand:
         query = query.filter(models.Product.brand == brand)
+    
+    if is_featured is not None:
+        query = query.filter(models.Product.is_featured == is_featured)
+    
+    if is_top_product is not None:
+        query = query.filter(models.Product.is_top_product == is_top_product)
     
     return query.offset(skip).limit(limit).all()
 

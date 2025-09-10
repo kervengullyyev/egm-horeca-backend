@@ -57,6 +57,8 @@ class ProductBase(BaseModel):
     has_variants: bool = False
     variant_type_en: Optional[str] = Field(None, max_length=100)  # e.g., "Size", "Color", "Material"
     variant_type_ro: Optional[str] = Field(None, max_length=100)  # Romanian variant type
+    is_featured: bool = False
+    is_top_product: bool = False
 
 class ProductCreate(ProductBase):
     pass
@@ -80,6 +82,8 @@ class ProductUpdate(BaseModel):
     has_variants: Optional[bool] = None
     variant_type_en: Optional[str] = Field(None, max_length=100)
     variant_type_ro: Optional[str] = Field(None, max_length=100)
+    is_featured: Optional[bool] = None
+    is_top_product: Optional[bool] = None
 
 class ProductResponse(ProductBase):
     id: int

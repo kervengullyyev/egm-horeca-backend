@@ -356,6 +356,8 @@ def read_products(
     max_price: Optional[float] = Query(None, ge=0),
     brand: Optional[str] = Query(None),
     language: Optional[str] = Query(None),
+    is_featured: Optional[bool] = Query(None),
+    is_top_product: Optional[bool] = Query(None),
     db: Session = Depends(get_db)
 ):
     """Get all products with optional filtering"""
@@ -377,7 +379,9 @@ def read_products(
             min_price=min_price,
             max_price=max_price,
             brand=brand,
-            language=language
+            language=language,
+            is_featured=is_featured,
+            is_top_product=is_top_product
         )
         return products
     except Exception as e:
