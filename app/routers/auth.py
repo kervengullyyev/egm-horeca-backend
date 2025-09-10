@@ -2,11 +2,17 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
+import secrets
+import logging
 from sqlalchemy.orm import Session
 from app import crud, database
 from app.utils import hash_password, verify_password
+from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, PasswordResetResponse
+from app.email_service import email_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -64,9 +70,9 @@ class AuthResponse(BaseModel):
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -236,5 +242,89 @@ async def get_all_users(db: Session = Depends(get_db)):
                 phone=db_user.phone or ""
             ))
         return users
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/forgot-password", response_model=PasswordResetResponse)
+async def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Send password reset email to user"""
+    try:
+        # Check if user exists
+        db_user = crud.get_user_by_email(db, email=request.email)
+        if not db_user:
+            # Return success even if user doesn't exist for security reasons
+            return PasswordResetResponse(
+                success=True,
+                message="If an account with that email exists, a password reset link has been sent."
+            )
+        
+        # Generate secure reset token
+        reset_token = secrets.token_urlsafe(32)
+        
+        # Set token expiration (1 hour from now)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        
+        # Save reset token to database
+        crud.set_password_reset_token(db, db_user.id, reset_token, expires_at)
+        
+        # Send reset email
+        user_name = db_user.full_name.split()[0] if db_user.full_name else None
+        email_sent = await email_service.send_password_reset_email(
+            email=db_user.email,
+            reset_token=reset_token,
+            user_name=user_name
+        )
+        
+        if not email_sent:
+            # Log the error but don't fail the request
+            logger.error(f"Failed to send password reset email to {db_user.email}")
+            # Still return success to prevent email enumeration
+            return PasswordResetResponse(
+                success=True,
+                message="If an account with that email exists, a password reset link has been sent."
+            )
+        
+        return PasswordResetResponse(
+            success=True,
+            message="If an account with that email exists, a password reset link has been sent."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/reset-password", response_model=PasswordResetResponse)
+async def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Reset user password using reset token"""
+    try:
+        # Find user by reset token
+        db_user = crud.get_user_by_reset_token(db, request.token)
+        if not db_user:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        
+        # Check if token is expired
+        if db_user.reset_token_expires and datetime.now(timezone.utc) > db_user.reset_token_expires:
+            # Clear expired token
+            crud.clear_password_reset_token(db, db_user.id)
+            raise HTTPException(status_code=400, detail="Reset token has expired")
+        
+        # Update password
+        crud.update_user_password(db, db_user.id, request.new_password)
+        
+        # Send confirmation email
+        user_name = db_user.full_name.split()[0] if db_user.full_name else None
+        await email_service.send_password_reset_confirmation(
+            email=db_user.email,
+            user_name=user_name
+        )
+        
+        return PasswordResetResponse(
+            success=True,
+            message="Password has been reset successfully"
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

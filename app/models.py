@@ -84,6 +84,10 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
+    # Password reset fields
+    reset_token = Column(String(255), nullable=True, index=True)
+    reset_token_expires = Column(DateTime(timezone=True), nullable=True)
+    
     favorites = relationship("Favorite", back_populates="user")
 
 class Order(Base):

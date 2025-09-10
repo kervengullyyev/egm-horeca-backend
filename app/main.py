@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import app.api as api
+import app.routers.auth as auth_router
 import app.routers.stripe as stripe_router
 import app.routers.messages as messages_router
 import os
@@ -46,6 +47,9 @@ app.mount("/api/v1/files", StaticFiles(directory="uploads/files"), name="files")
 
 # Include API router
 app.include_router(api.router, prefix="/api/v1")
+
+# Include Auth router
+app.include_router(auth_router.router, prefix="/api/v1/auth", tags=["auth"])
 
 # Include Stripe router
 app.include_router(stripe_router.router, prefix="/api/v1")

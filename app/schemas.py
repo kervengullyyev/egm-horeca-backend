@@ -370,3 +370,15 @@ class StripeWebhookData(BaseModel):
     payment_status: str
     stripe_payment_intent_id: Optional[str] = None
     receipt_url: Optional[str] = None
+
+# Password reset schemas
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., pattern=r"^[^@]+@[^@]+\.[^@]+$")
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=6)
+
+class PasswordResetResponse(BaseModel):
+    success: bool
+    message: str

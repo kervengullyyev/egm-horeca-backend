@@ -205,6 +205,42 @@ def delete_user(db: Session, user_id: int):
         db.commit()
     return db_user
 
+def get_user_by_reset_token(db: Session, reset_token: str):
+    """Get user by reset token"""
+    return db.query(models.User).filter(models.User.reset_token == reset_token).first()
+
+def set_password_reset_token(db: Session, user_id: int, reset_token: str, expires_at):
+    """Set password reset token for user"""
+    db_user = get_user(db, user_id)
+    if db_user:
+        db_user.reset_token = reset_token
+        db_user.reset_token_expires = expires_at
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
+def clear_password_reset_token(db: Session, user_id: int):
+    """Clear password reset token for user"""
+    db_user = get_user(db, user_id)
+    if db_user:
+        db_user.reset_token = None
+        db_user.reset_token_expires = None
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
+def update_user_password(db: Session, user_id: int, new_password: str):
+    """Update user password"""
+    from app.utils import hash_password
+    db_user = get_user(db, user_id)
+    if db_user:
+        db_user.hashed_password = hash_password(new_password)
+        db_user.reset_token = None
+        db_user.reset_token_expires = None
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
 # Order CRUD operations
 def get_order(db: Session, order_id: int):
     return db.query(models.Order).filter(models.Order.id == order_id).first()
