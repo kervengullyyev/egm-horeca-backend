@@ -327,6 +327,23 @@ async def delete_category(category_id: int, db: Session = Depends(get_db)):
     
     return {"message": "Category deleted successfully"}
 
+@router.put("/categories-reorder")
+async def reorder_categories(reorder_data: List[schemas.CategoryReorder], db: Session = Depends(get_db)):
+    """Reorder categories"""
+    try:
+        crud.reorder_categories(db=db, reorder_data=reorder_data)
+        
+        # Send webhook to frontend
+        try:
+            await webhook_client.categories_reordered()
+        except Exception as e:
+            print(f"Failed to send categories reordered webhook: {e}")
+        
+        return {"message": "Categories reordered successfully"}
+    except Exception as e:
+        print(f"Error reordering categories: {e}")
+        raise HTTPException(status_code=500, detail="Failed to reorder categories")
+
 # Product endpoints
 @router.get("/products", response_model=List[schemas.ProductResponse])
 def read_products(

@@ -98,6 +98,10 @@ class WebhookClient:
             "id": category_id
         })
     
+    async def categories_reordered(self):
+        """Send categories reordered webhook"""
+        return await self.send_webhook("categories.reordered", {})
+    
     async def order_created(self, order_id: int):
         """Send order created webhook"""
         return await self.send_webhook("order.created", {

@@ -16,6 +16,7 @@ class Category(Base):
     description_en = Column(Text)
     description_ro = Column(Text)
     image_url = Column(String(255))
+    sort_order = Column(Integer, default=0, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

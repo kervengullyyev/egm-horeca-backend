@@ -15,7 +15,7 @@ def get_categories(db: Session, skip: int = 0, limit: int = 100, active_only: bo
     query = db.query(models.Category)
     if active_only:
         query = query.filter(models.Category.is_active == True)
-    return query.offset(skip).limit(limit).all()
+    return query.order_by(models.Category.sort_order.asc(), models.Category.id.asc()).offset(skip).limit(limit).all()
 
 def create_category(db: Session, category: schemas.CategoryCreate):
     db_category = models.Category(**category.model_dump())
@@ -40,6 +40,27 @@ def delete_category(db: Session, category_id: int):
         db.delete(db_category)
         db.commit()
     return db_category
+
+def reorder_categories(db: Session, reorder_data: List[schemas.CategoryReorder]):
+    """Reorder categories based on provided positions"""
+    try:
+        # Get all categories to update
+        category_ids = [item.category_id for item in reorder_data]
+        categories = db.query(models.Category).filter(models.Category.id.in_(category_ids)).all()
+        
+        # Create a mapping of category_id to new position
+        position_map = {item.category_id: item.new_position for item in reorder_data}
+        
+        # Update sort_order for each category
+        for category in categories:
+            if category.id in position_map:
+                category.sort_order = position_map[category.id]
+        
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        raise e
 
 # Product CRUD operations
 def get_product(db: Session, product_id: int):

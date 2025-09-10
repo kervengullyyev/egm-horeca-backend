@@ -10,6 +10,7 @@ class CategoryBase(BaseModel):
     description_en: Optional[str] = None
     description_ro: Optional[str] = None
     image_url: Optional[str] = None
+    sort_order: int = Field(0, ge=0)
     is_active: bool = True
 
 class CategoryCreate(CategoryBase):
@@ -22,6 +23,7 @@ class CategoryUpdate(BaseModel):
     description_en: Optional[str] = None
     description_ro: Optional[str] = None
     image_url: Optional[str] = None
+    sort_order: Optional[int] = Field(None, ge=0)
     is_active: Optional[bool] = None
 
 class CategoryResponse(CategoryBase):
@@ -31,6 +33,10 @@ class CategoryResponse(CategoryBase):
     
     class Config:
         from_attributes = True
+
+class CategoryReorder(BaseModel):
+    category_id: int
+    new_position: int = Field(..., ge=0)
 
 class ProductBase(BaseModel):
     name_en: str = Field(..., min_length=1, max_length=200)
