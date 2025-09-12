@@ -10,8 +10,12 @@ import logging
 from sqlalchemy.orm import Session
 from app import crud, database
 from app.utils import hash_password, verify_password
-from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, PasswordResetResponse, AddressUpdateRequest, AddressUpdateResponse, UserResponse
+from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, PasswordResetResponse, AddressUpdateRequest, AddressUpdateResponse, UserResponse, AdminSignIn, AdminAuthResponse
+from app.models import User
 from app.email_service import email_service
+from app.security import check_login_attempts, record_failed_attempt, record_successful_login, check_admin_ip_access
+from app.admin_logger import log_login_attempt
+from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +102,20 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     """Dependency to get current authenticated user"""
     token = credentials.credentials
     return verify_token(token, db)
+
+def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    """Get current user and verify they have admin privileges"""
+    user = get_current_user(credentials, db)
+    
+    # Check if user has admin role
+    if user.role not in ['admin', 'super_admin']:
+        raise HTTPException(status_code=403, detail="Access denied. Admin privileges required")
+    
+    # Check if user is active
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+    
+    return user
 
 
 
@@ -188,6 +206,105 @@ async def signin(user_data: UserSignIn, db: Session = Depends(get_db)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/admin/signin", response_model=AdminAuthResponse)
+async def admin_signin(admin_data: AdminSignIn, request: Request, db: Session = Depends(get_db)):
+    try:
+        # Get client IP
+        client_ip = request.client.host
+        
+        # Check IP whitelist
+        ip_allowed, ip_message = check_admin_ip_access(client_ip)
+        if not ip_allowed:
+            raise HTTPException(status_code=403, detail=ip_message)
+        
+        # Check login attempts
+        is_allowed, message = check_login_attempts(client_ip)
+        if not is_allowed:
+            raise HTTPException(status_code=429, detail=message)
+        
+        # Check if user exists in database
+        db_user = crud.get_user_by_email(db, email=admin_data.email)
+        if not db_user:
+            record_failed_attempt(client_ip)
+            log_login_attempt(client_ip, admin_data.email, False, "User not found")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Check if user has admin role
+        if db_user.role not in ['admin', 'super_admin']:
+            record_failed_attempt(client_ip)
+            log_login_attempt(client_ip, admin_data.email, False, "Insufficient privileges")
+            raise HTTPException(status_code=403, detail="Access denied. Admin privileges required")
+        
+        # Check if user is active
+        if not db_user.is_active:
+            record_failed_attempt(client_ip)
+            log_login_attempt(client_ip, admin_data.email, False, "Account deactivated")
+            raise HTTPException(status_code=403, detail="Account is deactivated")
+        
+        # Verify password
+        if not verify_password(admin_data.password, db_user.hashed_password):
+            record_failed_attempt(client_ip)
+            log_login_attempt(client_ip, admin_data.email, False, "Invalid password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Record successful login
+        record_successful_login(client_ip)
+        log_login_attempt(client_ip, admin_data.email, True)
+        
+        # Create access token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": admin_data.email}, expires_delta=access_token_expires
+        )
+        
+        # Return admin user data
+        admin_user = {
+            "id": str(db_user.id),
+            "firstName": db_user.full_name.split()[0] if db_user.full_name else "",
+            "lastName": " ".join(db_user.full_name.split()[1:]) if db_user.full_name and len(db_user.full_name.split()) > 1 else "",
+            "email": db_user.email,
+            "role": db_user.role,
+            "isActive": db_user.is_active
+        }
+        
+        return AdminAuthResponse(
+            success=True,
+            message="Admin login successful",
+            token=access_token,
+            user=admin_user
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Admin signin error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/refresh")
+async def refresh_token(request: Request, current_admin = Depends(get_current_admin)):
+    """Refresh admin access token"""
+    try:
+        # Create new access token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": current_admin.email}, expires_delta=access_token_expires
+        )
+        
+        return {
+            "success": True,
+            "token": access_token,
+            "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        }
+        
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}")
+        raise HTTPException(status_code=500, detail="Token refresh failed")
+
+@router.post("/logout")
+async def logout(current_user: User = Depends(get_current_user)):
+    """Logout endpoint - token will be invalidated client-side"""
+    return {"success": True, "message": "Logged out successfully"}
 
 @router.post("/sso", response_model=AuthResponse)
 async def sso_login(sso_data: SSORequest, db: Session = Depends(get_db)):

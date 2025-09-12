@@ -8,6 +8,7 @@ from PIL import Image
 import io
 from app import crud, schemas, database
 from app.routers import auth, stripe, orders
+from app.routers.auth import get_current_admin
 from app.webhook_client import webhook_client
 from dotenv import load_dotenv
 
@@ -42,7 +43,7 @@ def health_check():
 
 # File upload endpoint
 @router.post("/upload-file")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), current_admin = Depends(get_current_admin)):
     """Upload any file (max 20MB)"""
     try:
         # Check file size limit (20MB = 20 * 1024 * 1024 bytes)
@@ -91,7 +92,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 # Image upload endpoint (kept for backward compatibility)
 @router.post("/upload-image")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), current_admin = Depends(get_current_admin)):
     """Upload an image file (max 20MB)"""
     try:
         # Validate file type
@@ -279,7 +280,7 @@ def read_category_by_slug(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/categories", response_model=schemas.CategoryResponse)
-async def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
+async def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Create a new category"""
     db_category = crud.create_category(db=db, category=category)
     
@@ -295,7 +296,7 @@ async def create_category(category: schemas.CategoryCreate, db: Session = Depend
     return db_category
 
 @router.put("/categories/{category_id}", response_model=schemas.CategoryResponse)
-async def update_category(category_id: int, category: schemas.CategoryUpdate, db: Session = Depends(get_db)):
+async def update_category(category_id: int, category: schemas.CategoryUpdate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Update a category"""
     db_category = crud.update_category(db=db, category_id=category_id, category=category)
     if db_category is None:
@@ -313,7 +314,7 @@ async def update_category(category_id: int, category: schemas.CategoryUpdate, db
     return db_category
 
 @router.delete("/categories/{category_id}")
-async def delete_category(category_id: int, db: Session = Depends(get_db)):
+async def delete_category(category_id: int, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Delete a category"""
     db_category = crud.delete_category(db=db, category_id=category_id)
     if db_category is None:
@@ -328,7 +329,7 @@ async def delete_category(category_id: int, db: Session = Depends(get_db)):
     return {"message": "Category deleted successfully"}
 
 @router.put("/categories-reorder")
-async def reorder_categories(reorder_data: List[schemas.CategoryReorder], db: Session = Depends(get_db)):
+async def reorder_categories(reorder_data: List[schemas.CategoryReorder], db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Reorder categories"""
     try:
         crud.reorder_categories(db=db, reorder_data=reorder_data)
@@ -409,7 +410,7 @@ def read_product_by_slug(slug: str, db: Session = Depends(get_db)):
     return product
 
 @router.post("/products", response_model=schemas.ProductResponse)
-async def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
+async def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Create a new product"""
     db_product = crud.create_product(db=db, product=product)
     
@@ -426,7 +427,7 @@ async def create_product(product: schemas.ProductCreate, db: Session = Depends(g
     return db_product
 
 @router.put("/products/{product_id}", response_model=schemas.ProductResponse)
-async def update_product(product_id: int, product: schemas.ProductUpdate, db: Session = Depends(get_db)):
+async def update_product(product_id: int, product: schemas.ProductUpdate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Update a product"""
     db_product = crud.update_product(db=db, product_id=product_id, product=product)
     if db_product is None:
@@ -445,7 +446,7 @@ async def update_product(product_id: int, product: schemas.ProductUpdate, db: Se
     return db_product
 
 @router.delete("/products/{product_id}")
-async def delete_product(product_id: int, db: Session = Depends(get_db)):
+async def delete_product(product_id: int, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Delete a product"""
     # Get product info before deletion for webhook
     db_product = crud.get_product(db, product_id=product_id)
@@ -477,7 +478,8 @@ def read_product_variants(product_id: int, db: Session = Depends(get_db)):
 def create_product_variant(
     product_id: int, 
     variant: schemas.ProductVariantCreate, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin = Depends(get_current_admin)
 ):
     """Create a new variant for a product"""
     return crud.create_product_variant(db=db, product_id=product_id, variant=variant)
@@ -486,7 +488,8 @@ def create_product_variant(
 def update_product_variant(
     variant_id: int, 
     variant: schemas.ProductVariantUpdate, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin = Depends(get_current_admin)
 ):
     """Update a product variant"""
     db_variant = crud.update_product_variant(db=db, variant_id=variant_id, variant=variant)
@@ -495,7 +498,7 @@ def update_product_variant(
     return db_variant
 
 @router.delete("/variants/{variant_id}")
-def delete_product_variant(variant_id: int, db: Session = Depends(get_db)):
+def delete_product_variant(variant_id: int, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Delete a product variant"""
     db_variant = crud.delete_product_variant(db=db, variant_id=variant_id)
     if db_variant is None:
@@ -508,14 +511,15 @@ def read_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     active_only: bool = Query(True),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin = Depends(get_current_admin)
 ):
     """Get all users"""
     users = crud.get_users(db, skip=skip, limit=limit, active_only=active_only)
     return users
 
 @router.get("/users/{user_id}", response_model=schemas.UserResponse)
-def read_user(user_id: int, db: Session = Depends(get_db)):
+def read_user(user_id: int, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Get a specific user by ID"""
     user = crud.get_user(db, user_id=user_id)
     if user is None:
@@ -523,7 +527,7 @@ def read_user(user_id: int, db: Session = Depends(get_db)):
     return user
 
 @router.post("/users", response_model=schemas.UserResponse)
-def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Create a new user"""
     # Check if email already exists
     db_user = crud.get_user_by_email(db, email=user.email)
@@ -538,7 +542,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return crud.create_user(db=db, user=user)
 
 @router.put("/users/{user_id}", response_model=schemas.UserResponse)
-def update_user(user_id: int, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+def update_user(user_id: int, user: schemas.UserUpdate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Update a user"""
     db_user = crud.update_user(db=db, user_id=user_id, user=user)
     if db_user is None:
@@ -546,7 +550,7 @@ def update_user(user_id: int, user: schemas.UserUpdate, db: Session = Depends(ge
     return db_user
 
 @router.delete("/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(user_id: int, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Delete a user"""
     db_user = crud.delete_user(db=db, user_id=user_id)
     if db_user is None:
@@ -559,14 +563,15 @@ def read_orders(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     user_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin = Depends(get_current_admin)
 ):
     """Get all orders with optional user filtering"""
     orders = crud.get_orders(db, skip=skip, limit=limit, user_id=user_id)
     return orders
 
 @router.get("/orders/{order_id}", response_model=schemas.OrderResponse)
-def read_order(order_id: int, db: Session = Depends(get_db)):
+def read_order(order_id: int, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Get a specific order by ID"""
     order = crud.get_order(db, order_id=order_id)
     if order is None:
@@ -579,7 +584,7 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     return crud.create_order(db=db, order=order)
 
 @router.put("/orders/{order_id}", response_model=schemas.OrderResponse)
-def update_order(order_id: int, order: schemas.OrderUpdate, db: Session = Depends(get_db)):
+def update_order(order_id: int, order: schemas.OrderUpdate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Update an order"""
     db_order = crud.update_order(db=db, order_id=order_id, order=order)
     if db_order is None:
@@ -621,14 +626,15 @@ def read_messages(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     status: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin = Depends(get_current_admin)
 ):
     """Get all messages with optional status filtering"""
     messages = crud.get_messages(db, skip=skip, limit=limit, status=status)
     return messages
 
 @router.get("/messages/{message_id}", response_model=schemas.MessageResponse)
-def read_message(message_id: int, db: Session = Depends(get_db)):
+def read_message(message_id: int, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Get a specific message by ID"""
     message = crud.get_message(db, message_id=message_id)
     if message is None:
@@ -641,7 +647,7 @@ def create_message(message: schemas.MessageCreate, db: Session = Depends(get_db)
     return crud.create_message(db=db, message=message)
 
 @router.put("/messages/{message_id}", response_model=schemas.MessageResponse)
-def update_message(message_id: int, message: schemas.MessageUpdate, db: Session = Depends(get_db)):
+def update_message(message_id: int, message: schemas.MessageUpdate, db: Session = Depends(get_db), current_admin = Depends(get_current_admin)):
     """Update a message status"""
     db_message = crud.update_message(db=db, message_id=message_id, message=message)
     if db_message is None:

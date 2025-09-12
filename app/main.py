@@ -1,7 +1,9 @@
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 import app.api as api
 import app.routers.auth as auth_router
 import app.routers.stripe as stripe_router
@@ -12,10 +14,36 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+async def security_headers_middleware(request: Request, call_next):
+    """Add security headers to all responses"""
+    response = await call_next(request)
+    
+    # Security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    
+    # Only add HSTS in production
+    if os.getenv("NODE_ENV") == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    return response
+
 app = FastAPI(
     title="EGM Horeca API",
     description="Backend API for EGM Horeca e-commerce platform",
     version="1.0.0"
+)
+
+# Add security middleware
+app.middleware("http")(security_headers_middleware)
+
+# Add trusted host middleware
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=["*"]  # Configure this properly in production
 )
 
 # CORS middleware configuration - use environment variables

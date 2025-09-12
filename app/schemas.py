@@ -99,7 +99,7 @@ class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=100)
     full_name: str = Field(..., min_length=1, max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
-    role: str = Field("customer", pattern="^(customer|admin)$")
+    role: str = Field("customer", pattern="^(customer|admin|super_admin)$")
     is_active: bool = True
 
 class UserCreate(BaseModel):
@@ -107,7 +107,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=100)
     full_name: str = Field(..., min_length=1, max_length=200)
     phone: Optional[str] = Field(None, max_length=20)
-    role: str = Field("customer", pattern="^(customer|admin)$")
+    role: str = Field("customer", pattern="^(customer|admin|super_admin)$")
     is_active: bool = True
     password: str = Field(..., min_length=6)
 
@@ -150,6 +150,25 @@ class UserResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+# Admin Authentication Schemas
+class AdminSignIn(BaseModel):
+    email: str = Field(..., description="Admin email address")
+    password: str = Field(..., min_length=6, description="Admin password")
+
+class AdminUser(BaseModel):
+    id: str
+    email: str
+    firstName: str
+    lastName: str
+    role: str
+    isActive: bool
+
+class AdminAuthResponse(BaseModel):
+    success: bool
+    message: str
+    token: str
+    user: AdminUser
 
 class OrderItemBase(BaseModel):
     product_id: int
